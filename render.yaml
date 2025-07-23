@@ -1,0 +1,29 @@
+services:
+  # --- Base de Datos PostgreSQL ---
+  - type: psql
+    name: skincheck-db
+    plan: free
+
+  # --- Servicio Web para el Backend FastAPI ---
+  - type: web
+    name: skincheck-api
+    env: docker # Indica a Render que use el Dockerfile
+    plan: free
+
+    # Conectar a la base de datos creada arriba
+    databases:
+      - name: skincheck-db
+        property: connectionString # Esto mapea la URL de conexión a DATABASE_URL
+
+    # Variables de Entorno
+    envVars:
+      - key: GOOGLE_API_KEY
+        fromSecret: true # Indica que el valor está en los secretos de Render
+      - key: CLOUDINARY_CLOUD_NAME
+        fromSecret: true
+      - key: CLOUDINARY_API_KEY
+        fromSecret: true
+      - key: CLOUDINARY_API_SECRET
+        fromSecret: true
+      - key: SECRET_KEY # Para JWT
+        fromSecret: true
