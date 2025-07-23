@@ -6,17 +6,8 @@ services:
     plan: free
 
     # Variables de Entorno Secretas
-    envVars:
-      - key: GOOGLE_API_KEY
-        fromSecret: true
-      - key: CLOUDINARY_CLOUD_NAME
-        fromSecret: true
-      - key: CLOUDINARY_API_KEY
-        fromSecret: true
-      - key: CLOUDINARY_API_SECRET
-        fromSecret: true
-      - key: SECRET_KEY # Para JWT
-        fromSecret: true
+    envVarGroups:
+      - name: skincheck-secrets
 
 # Definir las bases de datos a nivel raíz
 databases:
