@@ -1,6 +1,6 @@
 services:
   # --- Base de Datos PostgreSQL ---
-  - type: psql
+  - type: postgres
     name: skincheck-db
     plan: free
 
