@@ -49,8 +49,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT_DIR = os.path.dirname(BASE_DIR)
 
 # --- Rutas a modelos ---
-MODEL1_MELANOMA_PATH = os.path.join(PROJECT_ROOT_DIR, 'models', 'melanoma_efficientnetb0_v1.h5')
-MODEL2_MULTICLASS_PATH = os.path.join(PROJECT_ROOT_DIR, 'models', 'model2_best_overall.keras')
+MODEL1_MELANOMA_PATH = os.path.join(PROJECT_ROOT_DIR, 'models', 'model1_efficientnetb0.tflite')
+MODEL2_MULTICLASS_PATH = os.path.join(PROJECT_ROOT_DIR, 'models', 'model2_multiclass.tflite')
 # -----------------------------------------------
 
 IMG_SIZE = 224
@@ -90,52 +90,63 @@ except Exception as e:
 
 app = FastAPI(title="Skin Lesion Risk Assessment API (Cascaded + LLM)")
 
-# --- Carga de Modelos y Variables Globales ---
-model1_melanoma = None
-model2_multiclass = None
+# --- Carga de Intérpretes TFLite y Variables Globales ---
+interpreter1_melanoma = None
+interpreter2_multiclass = None
+input_details1, output_details1 = None, None
+input_details2, output_details2 = None, None
 
 
 @app.on_event("startup")
 async def load_models_on_startup():
-    global model1_melanoma, model2_multiclass
-    print(f"Cargando Modelo 1 (VGG19) desde {MODEL1_MELANOMA_PATH}...")
+    global interpreter1_melanoma, interpreter2_multiclass
+    global input_details1, output_details1, input_details2, output_details2
+    
+    print(f"Cargando Modelo 1 (ENB0 TFLite) desde {MODEL1_MELANOMA_PATH}...")
     if os.path.exists(MODEL1_MELANOMA_PATH):
-        model1_melanoma = tf.keras.models.load_model(MODEL1_MELANOMA_PATH)
-        print("Modelo 1 cargado.")
+        try:
+            interpreter1_melanoma = tf.lite.Interpreter(model_path=MODEL1_MELANOMA_PATH)
+            interpreter1_melanoma.allocate_tensors()
+            input_details1 = interpreter1_melanoma.get_input_details()
+            output_details1 = interpreter1_melanoma.get_output_details()
+            print("Intérprete TFLite Modelo 1 cargado.")
+        except Exception as e:
+            print(f"ERROR al cargar intérprete TFLite Modelo 1: {e}")
     else:
         print(f"ERROR: Archivo Modelo 1 no encontrado.")
 
-    print(f"Cargando Modelo 2 (VGG16) desde {MODEL2_MULTICLASS_PATH}...")
+    print(f"Cargando Modelo 2 (ENB0 TFLite) desde {MODEL2_MULTICLASS_PATH}...")
     if os.path.exists(MODEL2_MULTICLASS_PATH):
-        model2_multiclass = tf.keras.models.load_model(MODEL2_MULTICLASS_PATH)
-        print("Modelo 2 cargado.")
+        try:
+            interpreter2_multiclass = tf.lite.Interpreter(model_path=MODEL2_MULTICLASS_PATH)
+            interpreter2_multiclass.allocate_tensors()
+            input_details2 = interpreter2_multiclass.get_input_details()
+            output_details2 = interpreter2_multiclass.get_output_details()
+            print("Intérprete TFLite Modelo 2 cargado.")
+        except Exception as e:
+            print(f"ERROR al cargar intérprete TFLite Modelo 2: {e}")
     else:
         print(f"ERROR: Archivo Modelo 2 no encontrado.")
+# -----------------------------------------------------------------
 
 
 # --- Funciones de Preprocesamiento ---
-def preprocess_image_for_model(image_bytes, model_type: str):
-    """Preprocesa una imagen para un tipo de modelo específico (VGG16, VGG19)."""
+def preprocess_image_for_enb0(image_bytes):
+    """Preprocesa una imagen para el modelo EfficientNetB0."""
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-        img.thumbnail((IMG_SIZE, IMG_SIZE))
-        background = Image.new('RGB', (IMG_SIZE, IMG_SIZE), (0, 0, 0))
-        offset = ((IMG_SIZE - img.width) // 2, (IMG_SIZE - img.height) // 2)
-        background.paste(img, offset)
-        img_array = tf.keras.preprocessing.image.img_to_array(background)
+        img = img.resize((IMG_SIZE, IMG_SIZE)) # Resize simple
+        img_array = tf.keras.preprocessing.image.img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0)
+        img_array = img_array.astype(np.float32)
 
-        if model_type == 'vgg19':
-            return tf.keras.applications.vgg19.preprocess_input(img_array)
-        elif model_type == 'vgg16':
-            return tf.keras.applications.vgg16.preprocess_input(img_array)
-        else:
-            # Fallback o error si el tipo no es soportado
-            raise ValueError(f"Tipo de modelo no soportado para preprocesamiento: {model_type}")
-
+        # Usar el preprocesamiento específico de EfficientNet
+        processed_img = tf.keras.applications.efficientnet.preprocess_input(img_array)
+        return processed_img
     except Exception as e:
-        print(f"Error preprocesando imagen para {model_type}: {e}")
+        print(f"Error preprocesando imagen para EfficientNetB0: {e}")
         return None
+# ----------------------------------------------------------------
 
 
 # --- Funciones de LLM (is_skin_image_llm, get_llm_recommendation) ---
@@ -282,14 +293,15 @@ async def read_users_me(current_user: models_db.User = Depends(get_current_user)
     return current_user
 
 @app.post("/predict/cascade", summary="Evalúa riesgo de lesión cutánea y guarda el análisis", tags=["Analysis"])
+@app.post("/predict/cascade", summary="Evalúa riesgo de lesión cutánea y guarda el análisis", tags=["Analysis"])
 async def predict_cascade(
-        file: UploadFile = File(...),
-        db: Session = Depends(database.get_db),
-        current_user: models_db.User = Depends(get_current_user)
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models_db.User = Depends(get_current_user)
 ):
-    global model1_melanoma, model2_multiclass
-    if model1_melanoma is None: raise HTTPException(status_code=503, detail="Modelo 1 no disponible.")
-    if model2_multiclass is None: raise HTTPException(status_code=503, detail="Modelo 2 no disponible.")
+    # ... (Verificación de intérpretes cargados) ...
+    if interpreter1_melanoma is None: raise HTTPException(status_code=503, detail="Intérprete Modelo 1 no disponible.")
+    if interpreter2_multiclass is None: raise HTTPException(status_code=503, detail="Intérprete Modelo 2 no disponible.")
 
     try:
         img_bytes = await file.read()
@@ -317,33 +329,32 @@ async def predict_cascade(
         # Continuar sin URL de imagen si la subida falla
 
     # --- Preprocesamiento y Predicciones de la Cascada ---
-    processed_image_m1 = preprocess_image_for_model(img_bytes, model_type='vgg19')
-    if processed_image_m1 is None: raise HTTPException(status_code=400,
-                                                       detail="Error al procesar imagen para Modelo 1.")
-
+    processed_image = preprocess_image_for_enb0(img_bytes)
+    if processed_image is None:
+        raise HTTPException(status_code=400, detail="Error al procesar la imagen.")
+    
+    # --- Predicción Modelo 1 (ENB0 TFLite) ---
     try:
-        prediction_m1 = model1_melanoma.predict(processed_image_m1)
+        interpreter1_melanoma.set_tensor(input_details1[0]['index'], processed_image)
+        interpreter1_melanoma.invoke()
+        prediction_m1 = interpreter1_melanoma.get_tensor(output_details1[0]['index'])
         melanoma_probability = float(prediction_m1[0][0])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en predicción M1: {e}")
+        raise HTTPException(status_code=500, detail=f"Error en predicción M1 (TFLite): {e}")
 
     # Lógica de la cascada...
     if melanoma_probability >= MELANOMA_THRESHOLD:
         risk_level = "Alto";
         diagnosis_probable = "Posible Melanoma";
         probability = melanoma_probability
-        details_m2 = {"model_used": "Melanoma Binary Classifier (Modelo 1)"}
+        details_m2 = {"model_used": "Melanoma Binary Classifier (Modelo 1 - ENB0 TFLite)"}
     else:
         print("Riesgo Melanoma bajo, ejecutando Modelo 2...")
-        processed_image_m2 = preprocess_image_for_model(img_bytes, model_type='vgg16')
-        if processed_image_m2 is None: raise HTTPException(status_code=400,
-                                                           detail="Error al procesar imagen para Modelo 2.")
-
         try:
-            prediction_m2 = model2_multiclass.predict(processed_image_m2)
+            interpreter2_multiclass.set_tensor(input_details2[0]['index'], processed_image)
+            interpreter2_multiclass.invoke()
+            prediction_m2 = interpreter2_multiclass.get_tensor(output_details2[0]['index'])
             probabilities_m2 = prediction_m2[0]
-            predicted_class_index = np.argmax(probabilities_m2)
-            probability = float(probabilities_m2[predicted_class_index])
             class_map = {0: "Probablemente Benigno", 1: "Posible Carcinoma Basocelular (BCC)",
                          2: "Posible Queratosis Actínica (AKIEC)"}
             risk_map = {0: "Bajo", 1: "Medio", 2: "Medio"}
