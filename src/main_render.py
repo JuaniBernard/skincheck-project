@@ -292,7 +292,7 @@ async def login_for_access_token(
 async def read_users_me(current_user: models_db.User = Depends(get_current_user)):
     return current_user
 
-@app.post("/predict/cascade", summary="Evalúa riesgo de lesión cutánea y guarda el análisis", tags=["Analysis"])
+
 @app.post("/predict/cascade", summary="Evalúa riesgo de lesión cutánea y guarda el análisis", tags=["Analysis"])
 async def predict_cascade(
     file: UploadFile = File(...),
@@ -355,6 +355,8 @@ async def predict_cascade(
             interpreter2_multiclass.invoke()
             prediction_m2 = interpreter2_multiclass.get_tensor(output_details2[0]['index'])
             probabilities_m2 = prediction_m2[0]
+            predicted_class_index = np.argmax(probabilities_m2)
+            probability = float(probabilities_m2[predicted_class_index])
             class_map = {0: "Probablemente Benigno", 1: "Posible Carcinoma Basocelular (BCC)",
                          2: "Posible Queratosis Actínica (AKIEC)"}
             risk_map = {0: "Bajo", 1: "Medio", 2: "Medio"}
@@ -380,7 +382,7 @@ async def predict_cascade(
         db_analysis = models_db.AnalysisHistory(
             user_id=current_user.id,
             image_filename=original_filename,
-            image_path_local=image_url_cloudinary,  # Guardar la URL de Cloudinary
+            image_url=image_url_cloudinary,  # Guardar la URL de Cloudinary
             risk_level_model=risk_level,
             diagnosis_probable_model=diagnosis_probable,
             probability_model=probability,
@@ -430,21 +432,27 @@ async def read_user_history(
 # --- Endpoint de Borrar Historial ---
 @app.delete("/history/{history_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["History"])
 async def delete_analysis(
-        history_id: int, db: Session = Depends(database.get_db),
-        current_user: models_db.User = Depends(get_current_user)
+    history_id: int, db: Session = Depends(database.get_db),
+    current_user: models_db.User = Depends(get_current_user)
 ):
     db_analysis = crud_users.get_analysis_by_id(db=db, analysis_id=history_id)
     if db_analysis is None: raise HTTPException(status_code=404, detail="Análisis no encontrado")
     if db_analysis.user_id != current_user.id: raise HTTPException(status_code=403, detail="No autorizado")
 
     # Eliminar de Cloudinary si la URL existe
-    if db_analysis.image_path_local:
+    if db_analysis.image_url:
         try:
-            public_id = db_analysis.image_path_local.split('/')[-1].split('.')[0]
-            print("Imagen (potencialmente) eliminada de Cloudinary. Implementar borrado robusto con public_id.")
+            # Extraer el public_id de la URL. Es todo lo que va después de la última '/'
+            # y antes de la extensión '.jpg' o '.png'.
+            public_id_with_folder = "/".join(db_analysis.image_url.split('/')[-2:])
+            public_id = os.path.splitext(public_id_with_folder)[0]
+            print(f"Intentando eliminar de Cloudinary con public_id: {public_id}")
+            cloudinary.uploader.destroy(public_id)
+            print("Imagen eliminada de Cloudinary.")
         except Exception as e:
-            print(f"Error eliminando de Cloudinary: {e}")
+            print(f"Error eliminando de Cloudinary (puede que ya no exista): {e}")
 
+    # Borrar de la BD
     crud_users.delete_analysis_by_id(db=db, analysis_id=history_id)
     return
 
