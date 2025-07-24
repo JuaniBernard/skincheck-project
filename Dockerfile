@@ -11,16 +11,16 @@ COPY src/requirements.txt requirements.txt
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar todo el código fuente del backend al contenedor.
-# Copiar la carpeta 'src/' del proyecto a la carpeta '/app/' del contenedor
-COPY ./src /app
+# Copiar TODO el contenido del directorio actual (la raíz de tu repo local) a /app
+# Esto preservará la estructura de carpetas src/, models/, etc.
+COPY . .
 
 # Copiar los modelos de IA al contenedor.
 # Copiar la carpeta 'models/' del proyecto a la carpeta '/app/models/' del contenedor
 COPY ./models /app/models
 
 # Exponer el puerto en el que Uvicorn correrá.
-EXPOSE 8000
+EXPOSE 10000
 
 # Comando para ejecutar la aplicación cuando el contenedor se inicie.
-CMD ["uvicorn", "main_render:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main_render:app", "--host", "0.0.0.0", "--port", "10000"]
