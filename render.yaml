@@ -1,15 +1,18 @@
-# Definir los servicios
+databases:
+  - name: skincheck-db
+    plan: free
+
 services:
   - type: web
     name: skincheck-api
     env: docker
     plan: free
 
-    # Variables de Entorno Secretas
-    envVarGroups:
-      - name: skincheck-secrets
-
-# Definir las bases de datos a nivel raíz
-databases:
-  - name: skincheck-db
-    plan: free
+    # Variables de Entorno
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: skincheck-db
+          property: connectionString
+      
+      - fromGroup: skincheck-secrets
