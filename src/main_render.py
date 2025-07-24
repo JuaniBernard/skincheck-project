@@ -17,8 +17,7 @@ import cloudinary.uploader
 from jose import JWTError, jwt
 
 from . import database, security, crud_users
-from data import models_db
-from . import schemas
+from .data import models_db, schemas
 
 # --- Instancia de OAuth2PasswordBearer ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")

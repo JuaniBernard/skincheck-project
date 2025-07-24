@@ -1,7 +1,6 @@
 # src/crud_users.py
 from sqlalchemy.orm import Session
-from data import models_db
-from data import schemas
+from .data import models_db, schemas
 from . import security
 from typing import List
 
