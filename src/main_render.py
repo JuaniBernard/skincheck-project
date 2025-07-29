@@ -149,92 +149,70 @@ def preprocess_image_for_enb0(image_bytes):
 # ----------------------------------------------------------------
 
 
-# --- Funciones de LLM (is_skin_image_llm, get_llm_recommendation) ---
-async def is_skin_image_llm(image_bytes: bytes) -> bool:
+async def get_llm_validation_and_recommendation(
+    image_bytes: bytes,
+    diagnosis: str,
+    risk: str,
+    probability: float
+) -> dict:
     """
-    Usa Gemini para determinar si una imagen es de piel/lesión cutánea.
+    Usa Gemini Vision en una sola llamada para validar si la imagen es de piel
+    y para generar la recomendación y explicación (basada en características visuales) si es válida.
+    Devuelve un diccionario con los resultados.
     """
     global gemini_model
-    if gemini_model is None: return True  # Fallback
+    if gemini_model is None:
+        # Fallback si Gemini no está disponible
+        return {
+            "is_valid_image": True, # Ser permisivo
+            "recommendation": "Recomendación no disponible (Error en LLM).",
+            "explanation": "Explicación no disponible.",
+            "warning": "Esta aplicación es una herramienta de ayuda y no reemplaza un diagnóstico médico profesional."
+        }
+    
+    # --- PROMPT MULTI-TAREA ---
+    prompt = f"""
+    Actúa como un asistente virtual experto dermatológico de la aplicación Skincheck. Te proporcionaré una imagen y un diagnóstico preliminar. Tu tarea tiene dos partes y debes devolver un JSON.
+
+    PARTE 1 (Validación): Primero, determina si la imagen es una fotografía de cerca de la piel humana mostrando una lesión cutánea (lunar, peca, mancha).
+
+    PARTE 2 (Recomendación y Explicación Visual): Si y solo si la imagen es válida, usa el diagnóstico preliminar de "{diagnosis}" (con un nivel de riesgo "{risk}" y una confianza del modelo {probability*100:.1f}%) para generar lo siguiente:
+    1.  Una recomendación clara y concisa para el usuario en un tono empático y responsable (1-2 frases). 
+Si el riesgo es Alto o Medio, la recomendación principal debe ser consultar a un dermatólogo.
+Si es Bajo, sugiere vigilancia y consultar si hay cambios, también recomienda establecer un recordatorio en la aplicación para volver a realizar un análisis (aclara que sean 6 meses si posee antecedentes familiares de melanoma).
+    2.  Una explicación del diagnóstico en términos sencillos (4-6 frases). Para esto, observa la imagen y, basándote en tu conocimiento visual, describe qué características de esta lesión específica (ej. simetría/asimetría, regularidad de los bordes, uniformidad del color, etc.) podrían haber llevado a esta conclusión. Sé educativo y descriptivo sin ser alarmista. Si el diagnóstico es melanoma o carcinoma basocelular, incluye una breve definición de lo que es.
+    3.  Una advertencia final estándar de que la aplicación no es un diagnóstico profesional.
+
+    INSTRUCCIONES DE SALIDA:
+    Responde ÚNICAMENTE con un objeto JSON.
+    - Si la imagen NO es válida, el JSON debe ser: {{"is_valid_image": false, "rejection_reason": "La imagen no parece ser de una lesión cutánea."}}
+    - Si la imagen ES válida, el JSON debe ser: {{"is_valid_image": true, "recommendation": "[Tu recomendación aquí]", "explanation": "[Tu explicación aquí]", "warning": "[Tu advertencia aquí]"}}
+    """
 
     try:
         image_part = {"mime_type": "image/jpeg", "data": image_bytes}
-        prompt = "Analiza esta imagen. ¿Es una fotografía de cerca de la piel humana, mostrando un lunar, peca o lesión cutánea? Responde únicamente con 'Sí' o 'No'."
-
-        print("Verificando tipo de imagen con Gemini...")
+        print("Generando validación y recomendación con Gemini...")
+        
         response = await gemini_model.generate_content_async([prompt, image_part])
-        response_text = response.text.strip().lower()
-        print(f"Respuesta de Gemini (filtro): '{response_text}'")
-        return "sí" in response_text or "si" in response_text or "yes" in response_text
-    except Exception as e:
-        print(f"Error llamando a Gemini API para filtro: {e}");
-        return True
-
-
-# --- Función para llamar a Gemini ---
-async def get_llm_recommendation(diagnosis: str, risk: str, probability: float):
-    global gemini_model
-    if gemini_model is None:
-        return "Recomendación no disponible (Error en LLM).", "Explicación no disponible."
-
-    prompt = f"""
-    Eres un asistente virtual de una aplicación de chequeo de piel llamada Skincheck.
-    Un análisis de imagen ha producido los siguientes resultados para un lunar del usuario:
-    - Diagnóstico Más Probable: "{diagnosis}"
-    - Nivel de Riesgo Estimado por el sistema: "{risk}"
-    - Confianza del Modelo en este Diagnóstico: {probability*100:.1f}%
-
-    Basado en esta información:
-    1.  Genera una recomendación clara y concisa para el usuario en un tono empático y responsable (1-2 frases).
-        Si el riesgo es Alto o Medio, la recomendación principal debe ser consultar a un dermatólogo.
-        Si el riesgo es Bajo, sugiere vigilancia y consultar si hay cambios, también recomienda establecer un recordatorio en la aplicación para volver a realizar un análisis (aclarar que sean seis meses si tiene antecedentes familiares de melanoma, o un año si no los tiene).
-    2.  Proporciona una breve explicación de lo que significa el "Diagnóstico Más Probable" en términos sencillos para un paciente (2-3 frases).
-        No uses jerga médica excesiva. Si el diagnóstico es melanoma o carcinoma basocelular, agrega una frase que defina dicho cáncer y posibles características de la lesión o lunar.
-    3.  Siempre finaliza recordando al usuario que esta aplicación es una herramienta de ayuda y no reemplaza una consulta ni un diagnóstico médico profesional.
-
-    Formatea tu respuesta estrictamente así:
-    RECOMENDACION: [Tu recomendación aquí]
-    EXPLICACION: [Tu explicación aquí]
-    ADVERTENCIA: [Tu advertencia aquí]
-    """
-    try:
-        print("Generando respuesta con Gemini...")
-        response = await gemini_model.generate_content_async(prompt) # Usar async
-        # Extraer el texto y parsear
-        text_response = response.text
-        print(f"Respuesta cruda de Gemini: {text_response}") # Para depuración
-
-        recommendation = "Error al generar recomendación."
-        explanation = "Error al generar explicación."
-        warning = "Esta aplicación es una herramienta de ayuda y no reemplaza un diagnóstico médico profesional. Consulta siempre a un dermatólogo." # Fallback
-
-        rec_marker = "RECOMENDACION:"
-        exp_marker = "EXPLICACION:"
-        war_marker = "ADVERTENCIA:"
-
-        if rec_marker in text_response:
-            rec_start = text_response.find(rec_marker) + len(rec_marker)
-            exp_start_for_rec = text_response.find(exp_marker, rec_start)
-            recommendation = text_response[rec_start:exp_start_for_rec if exp_start_for_rec != -1 else None].strip()
-
-        if exp_marker in text_response:
-            exp_start = text_response.find(exp_marker) + len(exp_marker)
-            war_start_for_exp = text_response.find(war_marker, exp_start)
-            explanation = text_response[exp_start:war_start_for_exp if war_start_for_exp != -1 else None].strip()
-
-        if war_marker in text_response: # Si el LLM incluye la advertencia, usarla, si no, usar el fallback
-            war_start = text_response.find(war_marker) + len(war_marker)
-            custom_warning = text_response[war_start:].strip()
-            if custom_warning: # Si no está vacía
-                warning = custom_warning
-
-
-        return recommendation, explanation, warning
+        
+        # Limpiar y parsear la respuesta JSON
+        # A veces Gemini envuelve el JSON en ```json ... ```, hay que limpiarlo.
+        cleaned_response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        print(f"Respuesta cruda de Gemini (limpia): {cleaned_response_text}")
+        
+        response_json = json.loads(cleaned_response_text)
+        return response_json
 
     except Exception as e:
-        print(f"Error llamando a Gemini API: {e}")
-        return "No se pudo generar una recomendación en este momento.", "No disponible.", "Consulta a un dermatólogo si tienes preocupaciones."
-# ---------------------------------------
+        print(f"Error llamando o parseando respuesta de Gemini API: {e}")
+        # Devolver un error genérico o un fallback
+        return {
+            "is_valid_image": True, # Ser permisivo en caso de error de LLM
+            "recommendation": "No se pudo generar una recomendación en este momento.",
+            "explanation": "No disponible.",
+            "warning": "Consulta a un dermatólogo si tienes preocupaciones."
+        }
+# ------------------------------------------------------------------
 
 # --- FUNCIÓN DE DEPENDENCIA PARA OBTENER USUARIO ACTUAL ---
 async def get_current_user(db: Session = Depends(database.get_db), token: str = Depends(oauth2_scheme)):
@@ -310,25 +288,7 @@ async def predict_cascade(
     finally:
         await file.close()
 
-    # --- PASO 0: Filtro de Imagen con Gemini Vision (ANTES de subir/procesar) ---
-    is_valid_image = await is_skin_image_llm(img_bytes)
-    if not is_valid_image:
-        raise HTTPException(status_code=400,
-                            detail="La imagen no parece ser de piel. Por favor, sube una imagen de un lunar.")
-
-    # --- SUBIR IMAGEN A CLOUDINARY ---
-    image_url_cloudinary = None
-    original_filename = file.filename if file.filename else "unknown_image.jpg"
-    try:
-        print("Subiendo imagen a Cloudinary...")
-        upload_result = cloudinary.uploader.upload(img_bytes, folder="skincheck_analyses")
-        image_url_cloudinary = upload_result.get("secure_url")
-        print(f"Imagen subida. URL: {image_url_cloudinary}")
-    except Exception as e:
-        print(f"Error subiendo imagen a Cloudinary: {e}")
-        # Continuar sin URL de imagen si la subida falla
-
-    # --- Preprocesamiento y Predicciones de la Cascada ---
+    # --- PASO 1 y 2: Preprocesamiento y Predicciones de la Cascada (ANTES del LLM) ---
     processed_image = preprocess_image_for_enb0(img_bytes)
     if processed_image is None:
         raise HTTPException(status_code=400, detail="Error al procesar la imagen.")
@@ -371,6 +331,37 @@ async def predict_cascade(
             diagnosis_probable = "Lesión No Melanoma (análisis secundario falló)"
             probability = melanoma_probability
             details_m2 = {"model_used": "Modelo 1", "error_model2": str(e)}
+            
+    # --- PASO 3: Llamada ÚNICA a Gemini para validación y recomendación ---
+    llm_response = await get_llm_validation_and_recommendation(
+        image_bytes=img_bytes,
+        diagnosis=diagnosis_probable,
+        risk=risk_level,
+        probability=probability
+    )
+    # -----------------------------------------------------------------------
+
+    # --- Validar la respuesta del LLM ---
+    if not llm_response.get("is_valid_image", False):
+        raise HTTPException(status_code=400, detail=llm_response.get("rejection_reason", "La imagen fue rechazada por el análisis de IA."))
+    
+    # Extraer los textos del LLM
+    llm_recommendation = llm_response.get("recommendation", "N/A")
+    llm_explanation = llm_response.get("explanation", "N/A")
+    llm_warning = llm_response.get("warning", "N/A")
+    # ------------------------------------
+
+    # --- SUBIR IMAGEN A CLOUDINARY ---
+    image_url_cloudinary = None
+    original_filename = file.filename if file.filename else "unknown_image.jpg"
+    try:
+        print("Subiendo imagen a Cloudinary...")
+        upload_result = cloudinary.uploader.upload(img_bytes, folder="skincheck_analyses")
+        image_url_cloudinary = upload_result.get("secure_url")
+        print(f"Imagen subida. URL: {image_url_cloudinary}")
+    except Exception as e:
+        print(f"Error subiendo imagen a Cloudinary: {e}")
+        # Continuar sin URL de imagen si la subida falla
 
     # --- LLAMAR A GEMINI PARA RECOMENDACIÓN ---
     llm_recommendation, llm_explanation, llm_warning = await get_llm_recommendation(diagnosis_probable, risk_level,
