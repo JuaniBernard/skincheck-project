@@ -61,7 +61,7 @@ MELANOMA_THRESHOLD = 0.37
 try:
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     genai.configure(api_key=GOOGLE_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+    gemini_model = genai.GenerativeModel('gemini-2.5-flash')
     print("Modelo Gemini configurado.")
 except Exception as e:
     print(f"ERROR configurando Gemini: {e}")
@@ -362,10 +362,6 @@ async def predict_cascade(
     except Exception as e:
         print(f"Error subiendo imagen a Cloudinary: {e}")
         # Continuar sin URL de imagen si la subida falla
-
-    # --- LLAMAR A GEMINI PARA RECOMENDACIÓN ---
-    llm_recommendation, llm_explanation, llm_warning = await get_llm_recommendation(diagnosis_probable, risk_level,
-                                                                                    probability)
 
     # --- GUARDAR RESULTADO EN BASE DE DATOS ---
     try:
