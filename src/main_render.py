@@ -179,7 +179,7 @@ async def get_llm_validation_and_recommendation(
     PARTE 2 (Recomendación y Explicación Visual): Si y solo si la imagen es válida, usa el diagnóstico preliminar de "{diagnosis}" (con un nivel de riesgo "{risk}" y una confianza del modelo {probability*100:.1f}%) para generar lo siguiente:
     1.  Una recomendación clara y concisa para el usuario en un tono empático y responsable (1-2 frases). 
 Si el riesgo es Alto o Medio, la recomendación principal debe ser consultar a un dermatólogo.
-Si es Bajo, sugiere vigilancia y consultar si hay cambios, también recomienda establecer un recordatorio en la aplicación para volver a realizar un análisis (aclara que sean 6 meses si posee antecedentes familiares de melanoma).
+Si es Bajo, sugiere vigilancia y consultar si hay cambios, también recomienda establecer un recordatorio en la aplicación para volver a realizar un análisis: en 6 meses si el usuario posee antecedentes familiares de melanoma o en 1 año si no los posee.
     2.  Una explicación del diagnóstico en términos sencillos (4-6 frases). Para esto, observa la imagen y, basándote en tu conocimiento visual, describe qué características de esta lesión específica (ej. simetría/asimetría, regularidad de los bordes, uniformidad del color, etc.) podrían haber llevado a esta conclusión. Sé educativo y descriptivo sin ser alarmista. Si el diagnóstico es melanoma o carcinoma basocelular, incluye una breve definición de lo que es.
     3.  Una advertencia final estándar de que la aplicación no es un diagnóstico profesional.
 
